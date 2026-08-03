@@ -1,8 +1,9 @@
+import os
 import telebot
 from telebot import types
 
-# আপনার বটের নতুন টোকেন
-TOKEN = '8711796688:AAGWgSrIOV4n4d_WHFCRdssZJzBRNulcOq0'
+# Render-এর Environment Variable থেকে টোকেন নেওয়া হবে
+TOKEN = os.getenv('TOKEN')
 bot = telebot.TeleBot(TOKEN)
 
 # ডাটাবেসের ডেমো স্টোরেজ (রিয়েল প্রজেক্টে MongoDB বা SQLite ব্যবহার করবেন)
