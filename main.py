@@ -2,9 +2,9 @@ import os
 import telebot
 from telebot import types
 
-# Render-এর Environment Variable থেকে টোকেন নেওয়া হবে
-BOTTOKEN = os.getenv('TOKEN')
-bot = telebot.TeleBot(TOKEN)
+# Render-এর Environment Variable থেকে সঠিক নামে টোকেন নেওয়া হলো
+BOTTOKEN = os.getenv('BOTTOKEN')
+bot = telebot.TeleBot(BOTTOKEN)
 
 # ডাটাবেসের ডেমো স্টোরেজ (রিয়েল প্রজেক্টে MongoDB বা SQLite ব্যবহার করবেন)
 users = {}
