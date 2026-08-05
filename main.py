@@ -2,6 +2,8 @@ import os
 import telebot
 from telebot import types
 from supabase import create_client, Client
+from flask import Flask
+from threading import Thread
 
 # Render-এর Environment Variable থেকে টোকেন এবং সুপাবেজ ক্রিপডেনশিয়াল নেওয়া
 BOTTOKEN = os.getenv('BOTTOKEN')
@@ -11,10 +13,21 @@ SUPABASE_KEY = os.getenv('SUPABASE_KEY')
 bot = telebot.TeleBot(BOTTOKEN)
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
+# ফ্লাস্ক সার্ভার তৈরি (রেন্ডারের পোর্ট প্রবলেম সমাধানের জন্য)
+app = Flask('')
+
+@app.route('/')
+def home():
+    return "Bot is running!"
+
+def run_flask():
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host='0.0.0.0', port=port)
+
 # বাধ্যতামূলক চ্যানেলগুলোর লিস্ট
 CHANNELS = ["@YourChannel1", "@YourChannel2"]
 
-# ইউজার স্টেট ট্র্যাক করার জন্য ডিকশনারি (কোন ইউজার ওয়ালেট সেট করছে তা মনে রাখবে)
+# ইউজার স্টেট ট্র্যাক করার জন্য ডিকশনারি
 user_states = {}
 
 def check_subscription(user_id):
@@ -45,7 +58,7 @@ def get_or_create_user(user_id):
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
     user_id = message.from_user.id
-    user_states.pop(user_id, None)  # আগের কোনো স্টেট থাকলে মুছে ফেলা
+    user_states.pop(user_id, None)
     
     # চ্যানেল সাবস্ক্রাইব করা আছে কিনা চেক করা
     if not check_subscription(user_id):
@@ -57,7 +70,6 @@ def send_welcome(message):
         bot.send_message(message.chat.id, f"👋 Hello, 🇧🇩\n**{message.from_user.first_name}** !\n\n📢 Join All Channels To Continue.", reply_markup=markup, parse_mode="Markdown")
         return
 
-    # ইউজারকে ডাটাবেজে চেক বা রেজিস্টার করা
     get_or_create_user(user_id)
 
     # রেফারেল হ্যান্ডেলিং
@@ -81,7 +93,6 @@ def send_welcome(message):
 def callback_query(call):
     user_id = call.from_user.id
     
-    # সাবস্ক্রাইব চেক বাটন
     if call.data == "check_sub":
         if check_subscription(user_id):
             bot.answer_callback_query(call.id, "Verification Successful!")
@@ -94,7 +105,6 @@ def callback_query(call):
         else:
             bot.answer_callback_query(call.id, "⚠️ আগে সব চ্যানেলগুলোতে জয়েন করুন!", show_alert=True)
             
-    # ব্যালেন্স চেক বাটন
     elif call.data == "my_balance":
         user_states.pop(user_id, None)
         user_data = get_or_create_user(user_id)
@@ -102,7 +112,6 @@ def callback_query(call):
         bot.answer_callback_query(call.id)
         bot.send_message(call.message.chat.id, f"💳 Your Current Balance: {bal} টাকা")
         
-    # রেফার এন্ড আর্ন বাটন
     elif call.data == "refer_earn":
         user_states.pop(user_id, None)
         bot_username = bot.get_me().username
@@ -116,7 +125,6 @@ def callback_query(call):
         bot.answer_callback_query(call.id)
         bot.send_message(call.message.chat.id, text)
         
-    # সেট ওয়ালেট বাটন (বর্তমান ওয়ালেট দেখাবে এবং পরিবর্তনের অপশন দেবে)
     elif call.data == "set_wallet":
         user_states.pop(user_id, None)
         user_data = get_or_create_user(user_id)
@@ -128,13 +136,11 @@ def callback_query(call):
         bot.answer_callback_query(call.id)
         bot.send_message(call.message.chat.id, f"📝 Current Wallet: {current_w}", reply_markup=markup)
         
-    # ওয়ালেট পরিবর্তনের প্রম্পট
     elif call.data == "change_wallet":
         user_states[user_id] = "waiting_for_wallet"
         bot.answer_callback_query(call.id)
         bot.send_message(call.message.chat.id, "📞 আপনার বিকাশ বা নগদ নম্বরটি এখন চ্যাটে লিখে পাঠান:")
         
-    # ক্যাশআউট বাটন
     elif call.data == "cash_out":
         user_states.pop(user_id, None)
         user_data = get_or_create_user(user_id)
@@ -145,15 +151,13 @@ def callback_query(call):
         else:
             bot.send_message(call.message.chat.id, "✅ আপনার ক্যাশআউট রিকোয়েস্ট সফলভাবে জমা হয়েছে!")
 
-# সাধারণ টেক্সট হ্যান্ডলার (শুধুমাত্র যখন ইউজার ওয়ালেট নম্বর লেখার জন্য অপেক্ষা করবে তখন এটি কাজ করবে)
 @bot.message_handler(func=lambda message: True)
 def handle_text_messages(message):
     user_id = message.from_user.id
     
-    # যদি ইউজার ওয়ালেট সেট করার স্টেটে থাকে
     if user_states.get(user_id) == "waiting_for_wallet":
         wallet_number = message.text
-        user_states.pop(user_id, None)  # স্টেট ক্লিয়ার করা
+        user_states.pop(user_id, None)
         
         try:
             supabase.table("users").update({"wallet": wallet_number}).eq("user_id", str(user_id)).execute()
@@ -164,7 +168,6 @@ def handle_text_messages(message):
             
         main_menu(message.chat.id)
     else:
-        # অন্যথায় অযথা লুপে না ফেলে শুধু মেনু বা নোটিশ দেওয়া যেতে পারে
         pass
 
 def main_menu(chat_id):
@@ -180,5 +183,9 @@ def main_menu(chat_id):
     bot.send_message(chat_id, "✨ মূল মেনুতে স্বাগতম:", reply_markup=markup)
 
 if __name__ == '__main__':
-    print("Bot is running with Supabase...")
+    # ফ্লাস্ক সার্ভার ব্যাকগ্রাউন্ডে রান করানো যাতে রেন্ডারের পোর্ট টাইমআউট এরর না আসে
+    t = Thread(target=run_flask)
+    t.start()
+    
+    print("Bot is running with Flask and Supabase...")
     bot.infinity_polling()
