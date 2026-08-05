@@ -6,16 +6,15 @@ from telebot import types
 BOTTOKEN = os.getenv('BOTTOKEN')
 bot = telebot.TeleBot(BOTTOKEN)
 
-# ডাটাবেসের ডেমো স্টোরেজ (রিয়েল প্রজেক্টে MongoDB বা SQLite ব্যবহার করবেন)
+# ডাটাবেসের ডেমো স্টোরেজ
 users = {}
 balances = {}
 wallets = {}
 
-# বাধ্যতামূলক চ্যানেলগুলোর লিস্ট (এখানে আপনার চ্যানেল বা গ্রুপের ইউজারনেম বসাবেন)
+# বাধ্যতামূলক চ্যানেলগুলোর লিস্ট
 CHANNELS = ["@YourChannel1", "@YourChannel2"]
 
 def check_subscription(user_id):
-    # ফর্স সাবস্ক্রাইব চেক করার ফাংশন
     for channel in CHANNELS:
         try:
             status = bot.get_chat_member(channel, user_id).status
@@ -25,7 +24,9 @@ def check_subscription(user_id):
             pass
     return True
 
+# এটি এখন /start কমান্ড এবং সাধারণ যেকোনো মেসেজ বা চ্যাট শুরুর ক্ষেত্রেও কাজ করবে
 @bot.message_handler(commands=['start'])
+@bot.message_handler(func=lambda message: True)
 def send_welcome(message):
     user_id = message.from_user.id
     
@@ -39,13 +40,14 @@ def send_welcome(message):
         bot.send_message(message.chat.id, f"👋 Hello, 🇧🇩\n**{message.from_user.first_name}** !\n\n📢 Join All Channels To Continue.", reply_markup=markup, parse_mode="Markdown")
         return
 
-    # রেফারেল হ্যান্ডেলিং
-    args = message.text.split()
-    if len(args) > 1:
-        referrer_id = args[1]
-        if str(referrer_id) != str(user_id) and user_id not in users:
-            balances[referrer_id] = balances.get(referrer_id, 0) + 1
-            bot.send_message(referrer_id, "💰 আপনার ব্যালেন্স এ ১ টাকা যোগ করা হয়েছে 💰")
+    # রেফারেল হ্যান্ডেলিং (যদি টেক্সটে /start থাকে)
+    if message.text and message.text.startswith('/start'):
+        args = message.text.split()
+        if len(args) > 1:
+            referrer_id = args[1]
+            if str(referrer_id) != str(user_id) and user_id not in users:
+                balances[referrer_id] = balances.get(referrer_id, 0) + 1
+                bot.send_message(referrer_id, "💰 আপনার ব্যালেন্স এ ১ টাকা যোগ করা হয়েছে 💰")
 
     users[user_id] = True
     main_menu(message.chat.id)
