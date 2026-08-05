@@ -27,13 +27,17 @@ def check_subscription(user_id):
 # সুপাবেজ থেকে ইউজারের ডাটা আনা বা না থাকলে তৈরি করা
 def get_or_create_user(user_id):
     user_id_str = str(user_id)
-    response = supabase.table("users").select("*").eq("user_id", user_id_str).execute()
-    if response.data:
-        return response.data[0]
-    else:
-        new_data = {"user_id": user_id_str, "balance": 0, "wallet": "Not Set!!"}
-        supabase.table("users").insert(new_data).execute()
-        return new_data
+    try:
+        response = supabase.table("users").select("*").eq("user_id", user_id_str).execute()
+        if response.data:
+            return response.data[0]
+        else:
+            new_data = {"user_id": user_id_str, "balance": 0, "wallet": "Not Set!!"}
+            supabase.table("users").insert(new_data).execute()
+            return new_data
+    except Exception as e:
+        print(f"Supabase Error: {e}")
+        return {"user_id": user_id_str, "balance": 0, "wallet": "Not Set!!"}
 
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
@@ -50,19 +54,22 @@ def send_welcome(message):
         return
 
     # ইউজারকে ডাটাবেজে চেক বা রেজিস্টার করা
-    user_data = get_or_create_user(user_id)
+    get_or_create_user(user_id)
 
     # রেফারেল হ্যান্ডেলিং
     args = message.text.split()
     if len(args) > 1:
         referrer_id = args[1]
         if str(referrer_id) != str(user_id):
-            ref_user = supabase.table("users").select("*").eq("user_id", referrer_id).execute()
-            if ref_user.data:
-                current_bal = ref_user.data[0].get("balance", 0)
-                new_bal = current_bal + 1
-                supabase.table("users").update({"balance": new_bal}).eq("user_id", referrer_id).execute()
-                bot.send_message(referrer_id, "💰 আপনার ব্যালেন্স এ ১ টাকা যোগ করা হয়েছে 💰")
+            try:
+                ref_user = supabase.table("users").select("*").eq("user_id", referrer_id).execute()
+                if ref_user.data:
+                    current_bal = ref_user.data[0].get("balance", 0)
+                    new_bal = current_bal + 1
+                    supabase.table("users").update({"balance": new_bal}).eq("user_id", referrer_id).execute()
+                    bot.send_message(referrer_id, "💰 আপনার ব্যালেন্স এ ১ টাকা যোগ করা হয়েছে 💰")
+            except Exception as e:
+                print(f"Referral Error: {e}")
 
     main_menu(message.chat.id)
 
@@ -74,7 +81,10 @@ def callback_query(call):
     if call.data == "check_sub":
         if check_subscription(user_id):
             bot.answer_callback_query(call.id, "Verification Successful!")
-            bot.delete_message(call.message.chat.id, call.message.message_id)
+            try:
+                bot.delete_message(call.message.chat.id, call.message.message_id)
+            except:
+                pass
             get_or_create_user(user_id)
             main_menu(call.message.chat.id)
         else:
@@ -129,13 +139,20 @@ def main_menu(chat_id):
     bot.send_message(chat_id, "✨ মূল মেনুতে স্বাগতম:", reply_markup=markup)
 
 def save_wallet(message):
+    # যদি ইউজার ভুলবশত কোনো কমান্ড বা অন্য কিছু পাঠায়
+    if message.text and message.text.startswith('/'):
+        return
+        
     user_id = str(message.from_user.id)
     wallet_number = message.text
     
-    # সুপাবেজে ওয়ালেট নম্বর সেভ করা
-    supabase.table("users").update({"wallet": wallet_number}).eq("user_id", user_id).execute()
-    
-    bot.send_message(message.chat.id, "✅ সফলভাবে আপনার ওয়ালেট নম্বর সেভ করা হয়েছে!")
+    try:
+        supabase.table("users").update({"wallet": wallet_number}).eq("user_id", user_id).execute()
+        bot.send_message(message.chat.id, "✅ সফলভাবে আপনার ওয়ালেট নম্বর সেভ করা হয়েছে!")
+    except Exception as e:
+        bot.send_message(message.chat.id, "❌ ওয়ালেট সেভ করতে সমস্যা হয়েছে। আবার চেষ্টা করুন।")
+        print(f"Wallet Save Error: {e}")
+        
     main_menu(message.chat.id)
 
 if __name__ == '__main__':
