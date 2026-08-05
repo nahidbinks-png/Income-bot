@@ -1,15 +1,15 @@
 import os
 import telebot
 from telebot import types
+from supabase import create_client, Client
 
-# Render-এর Environment Variable থেকে সঠিক নামে টোকেন নেওয়া হলো
+# Render-এর Environment Variable থেকে টোকেন এবং সুপাবেজ ক্রিপডেনশিয়াল নেওয়া
 BOTTOKEN = os.getenv('BOTTOKEN')
-bot = telebot.TeleBot(BOTTOKEN)
+SUPABASE_URL = os.getenv('SUPABASE_URL')
+SUPABASE_KEY = os.getenv('SUPABASE_KEY')
 
-# ডাটাবেসের ডেমো স্টোরেজ
-users = {}
-balances = {}
-wallets = {}
+bot = telebot.TeleBot(BOTTOKEN)
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # বাধ্যতামূলক চ্যানেলগুলোর লিস্ট
 CHANNELS = ["@YourChannel1", "@YourChannel2"]
@@ -23,6 +23,17 @@ def check_subscription(user_id):
         except:
             pass
     return True
+
+# সুপাবেজ থেকে ইউজারের ডাটা আনা বা না থাকলে তৈরি করা
+def get_or_create_user(user_id):
+    user_id_str = str(user_id)
+    response = supabase.table("users").select("*").eq("user_id", user_id_str).execute()
+    if response.data:
+        return response.data[0]
+    else:
+        new_data = {"user_id": user_id_str, "balance": 0, "wallet": "Not Set!!"}
+        supabase.table("users").insert(new_data).execute()
+        return new_data
 
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
@@ -38,15 +49,21 @@ def send_welcome(message):
         bot.send_message(message.chat.id, f"👋 Hello, 🇧🇩\n**{message.from_user.first_name}** !\n\n📢 Join All Channels To Continue.", reply_markup=markup, parse_mode="Markdown")
         return
 
+    # ইউজারকে ডাটাবেজে চেক বা রেজিস্টার করা
+    user_data = get_or_create_user(user_id)
+
     # রেফারেল হ্যান্ডেলিং
     args = message.text.split()
     if len(args) > 1:
         referrer_id = args[1]
-        if str(referrer_id) != str(user_id) and user_id not in users:
-            balances[referrer_id] = balances.get(referrer_id, 0) + 1
-            bot.send_message(referrer_id, "💰 আপনার ব্যালেন্স এ ১ টাকা যোগ করা হয়েছে 💰")
+        if str(referrer_id) != str(user_id):
+            ref_user = supabase.table("users").select("*").eq("user_id", referrer_id).execute()
+            if ref_user.data:
+                current_bal = ref_user.data[0].get("balance", 0)
+                new_bal = current_bal + 1
+                supabase.table("users").update({"balance": new_bal}).eq("user_id", referrer_id).execute()
+                bot.send_message(referrer_id, "💰 আপনার ব্যালেন্স এ ১ টাকা যোগ করা হয়েছে 💰")
 
-    users[user_id] = True
     main_menu(message.chat.id)
 
 @bot.callback_query_handler(func=lambda call: True)
@@ -58,14 +75,15 @@ def callback_query(call):
         if check_subscription(user_id):
             bot.answer_callback_query(call.id, "Verification Successful!")
             bot.delete_message(call.message.chat.id, call.message.message_id)
-            users[user_id] = True
+            get_or_create_user(user_id)
             main_menu(call.message.chat.id)
         else:
             bot.answer_callback_query(call.id, "⚠️ আগে সব চ্যানেলগুলোতে জয়েন করুন!", show_alert=True)
             
     # ব্যালেন্স চেক বাটন
     elif call.data == "my_balance":
-        bal = balances.get(str(user_id), 0)
+        user_data = get_or_create_user(user_id)
+        bal = user_data.get("balance", 0)
         bot.answer_callback_query(call.id)
         bot.send_message(call.message.chat.id, f"💳 Your Current Balance: {bal} টাকা")
         
@@ -90,7 +108,8 @@ def callback_query(call):
         
     # ক্যাশআউট বাটন
     elif call.data == "cash_out":
-        bal = balances.get(str(user_id), 0)
+        user_data = get_or_create_user(user_id)
+        bal = user_data.get("balance", 0)
         bot.answer_callback_query(call.id)
         if bal < 10:
             bot.send_message(call.message.chat.id, "⚠️ আপনার ব্যালেন্স কম আছে। টাকা উত্তোলনের জন্য কমপক্ষে আপনার ব্যালেন্সের 10 টাকা থাকতে হবে ⚠️")
@@ -111,10 +130,14 @@ def main_menu(chat_id):
 
 def save_wallet(message):
     user_id = str(message.from_user.id)
-    wallets[user_id] = message.text
+    wallet_number = message.text
+    
+    # সুপাবেজে ওয়ালেট নম্বর সেভ করা
+    supabase.table("users").update({"wallet": wallet_number}).eq("user_id", user_id).execute()
+    
     bot.send_message(message.chat.id, "✅ সফলভাবে আপনার ওয়ালেট নম্বর সেভ করা হয়েছে!")
     main_menu(message.chat.id)
 
 if __name__ == '__main__':
-    print("Bot is running...")
+    print("Bot is running with Supabase...")
     bot.infinity_polling()
