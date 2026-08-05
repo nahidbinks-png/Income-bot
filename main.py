@@ -24,9 +24,8 @@ def check_subscription(user_id):
             pass
     return True
 
-# এটি এখন /start কমান্ড এবং সাধারণ যেকোনো মেসেজ বা চ্যাট শুরুর ক্ষেত্রেও কাজ করবে
+# শুধুমাত্র /start কমান্ডের জন্য এটি কাজ করবে
 @bot.message_handler(commands=['start'])
-@bot.message_handler(func=lambda message: True)
 def send_welcome(message):
     user_id = message.from_user.id
     
@@ -40,14 +39,13 @@ def send_welcome(message):
         bot.send_message(message.chat.id, f"👋 Hello, 🇧🇩\n**{message.from_user.first_name}** !\n\n📢 Join All Channels To Continue.", reply_markup=markup, parse_mode="Markdown")
         return
 
-    # রেফারেল হ্যান্ডেলিং (যদি টেক্সটে /start থাকে)
-    if message.text and message.text.startswith('/start'):
-        args = message.text.split()
-        if len(args) > 1:
-            referrer_id = args[1]
-            if str(referrer_id) != str(user_id) and user_id not in users:
-                balances[referrer_id] = balances.get(referrer_id, 0) + 1
-                bot.send_message(referrer_id, "💰 আপনার ব্যালেন্স এ ১ টাকা যোগ করা হয়েছে 💰")
+    # রেফারেল হ্যান্ডেলিং
+    args = message.text.split()
+    if len(args) > 1:
+        referrer_id = args[1]
+        if str(referrer_id) != str(user_id) and user_id not in users:
+            balances[referrer_id] = balances.get(referrer_id, 0) + 1
+            bot.send_message(referrer_id, "💰 আপনার ব্যালেন্স এ ১ টাকা যোগ করা হয়েছে 💰")
 
     users[user_id] = True
     main_menu(message.chat.id)
