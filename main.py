@@ -14,6 +14,9 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 # বাধ্যতামূলক চ্যানেলগুলোর লিস্ট
 CHANNELS = ["@YourChannel1", "@YourChannel2"]
 
+# ইউজার স্টেট ট্র্যাক করার জন্য ডিকশনারি (কোন ইউজার ওয়ালেট সেট করছে তা মনে রাখবে)
+user_states = {}
+
 def check_subscription(user_id):
     for channel in CHANNELS:
         try:
@@ -42,6 +45,7 @@ def get_or_create_user(user_id):
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
     user_id = message.from_user.id
+    user_states.pop(user_id, None)  # আগের কোনো স্টেট থাকলে মুছে ফেলা
     
     # চ্যানেল সাবস্ক্রাইব করা আছে কিনা চেক করা
     if not check_subscription(user_id):
@@ -92,6 +96,7 @@ def callback_query(call):
             
     # ব্যালেন্স চেক বাটন
     elif call.data == "my_balance":
+        user_states.pop(user_id, None)
         user_data = get_or_create_user(user_id)
         bal = user_data.get("balance", 0)
         bot.answer_callback_query(call.id)
@@ -99,6 +104,7 @@ def callback_query(call):
         
     # রেফার এন্ড আর্ন বাটন
     elif call.data == "refer_earn":
+        user_states.pop(user_id, None)
         bot_username = bot.get_me().username
         ref_link = f"https://t.me/{bot_username}?start={user_id}"
         text = (
@@ -110,14 +116,27 @@ def callback_query(call):
         bot.answer_callback_query(call.id)
         bot.send_message(call.message.chat.id, text)
         
-    # সেট ওয়ালেট বাটন
+    # সেট ওয়ালেট বাটন (বর্তমান ওয়ালেট দেখাবে এবং পরিবর্তনের অপশন দেবে)
     elif call.data == "set_wallet":
+        user_states.pop(user_id, None)
+        user_data = get_or_create_user(user_id)
+        current_w = user_data.get("wallet", "Not Set!!")
+        
+        markup = types.InlineKeyboardMarkup()
+        markup.add(types.InlineKeyboardButton("⚙️ Change Wallet", callback_data="change_wallet"))
+        
         bot.answer_callback_query(call.id)
-        msg = bot.send_message(call.message.chat.id, "📞 আপনার বিকাশ বা নগদ নম্বরটি লিখুন:")
-        bot.register_next_step_handler(msg, save_wallet)
+        bot.send_message(call.message.chat.id, f"📝 Current Wallet: {current_w}", reply_markup=markup)
+        
+    # ওয়ালেট পরিবর্তনের প্রম্পট
+    elif call.data == "change_wallet":
+        user_states[user_id] = "waiting_for_wallet"
+        bot.answer_callback_query(call.id)
+        bot.send_message(call.message.chat.id, "📞 আপনার বিকাশ বা নগদ নম্বরটি এখন চ্যাটে লিখে পাঠান:")
         
     # ক্যাশআউট বাটন
     elif call.data == "cash_out":
+        user_states.pop(user_id, None)
         user_data = get_or_create_user(user_id)
         bal = user_data.get("balance", 0)
         bot.answer_callback_query(call.id)
@@ -125,6 +144,28 @@ def callback_query(call):
             bot.send_message(call.message.chat.id, "⚠️ আপনার ব্যালেন্স কম আছে। টাকা উত্তোলনের জন্য কমপক্ষে আপনার ব্যালেন্সের 10 টাকা থাকতে হবে ⚠️")
         else:
             bot.send_message(call.message.chat.id, "✅ আপনার ক্যাশআউট রিকোয়েস্ট সফলভাবে জমা হয়েছে!")
+
+# সাধারণ টেক্সট হ্যান্ডলার (শুধুমাত্র যখন ইউজার ওয়ালেট নম্বর লেখার জন্য অপেক্ষা করবে তখন এটি কাজ করবে)
+@bot.message_handler(func=lambda message: True)
+def handle_text_messages(message):
+    user_id = message.from_user.id
+    
+    # যদি ইউজার ওয়ালেট সেট করার স্টেটে থাকে
+    if user_states.get(user_id) == "waiting_for_wallet":
+        wallet_number = message.text
+        user_states.pop(user_id, None)  # স্টেট ক্লিয়ার করা
+        
+        try:
+            supabase.table("users").update({"wallet": wallet_number}).eq("user_id", str(user_id)).execute()
+            bot.send_message(message.chat.id, "✅ সফলভাবে আপনার ওয়ালেট নম্বর সেভ করা হয়েছে!")
+        except Exception as e:
+            bot.send_message(message.chat.id, "❌ ওয়ালেট সেভ করতে সমস্যা হয়েছে। আবার চেষ্টা করুন।")
+            print(f"Wallet Save Error: {e}")
+            
+        main_menu(message.chat.id)
+    else:
+        # অন্যথায় অযথা লুপে না ফেলে শুধু মেনু বা নোটিশ দেওয়া যেতে পারে
+        pass
 
 def main_menu(chat_id):
     markup = types.InlineKeyboardMarkup()
@@ -137,23 +178,6 @@ def main_menu(chat_id):
         types.InlineKeyboardButton("Cash Out 💡", callback_data="cash_out")
     )
     bot.send_message(chat_id, "✨ মূল মেনুতে স্বাগতম:", reply_markup=markup)
-
-def save_wallet(message):
-    # যদি ইউজার ভুলবশত কোনো কমান্ড বা অন্য কিছু পাঠায়
-    if message.text and message.text.startswith('/'):
-        return
-        
-    user_id = str(message.from_user.id)
-    wallet_number = message.text
-    
-    try:
-        supabase.table("users").update({"wallet": wallet_number}).eq("user_id", user_id).execute()
-        bot.send_message(message.chat.id, "✅ সফলভাবে আপনার ওয়ালেট নম্বর সেভ করা হয়েছে!")
-    except Exception as e:
-        bot.send_message(message.chat.id, "❌ ওয়ালেট সেভ করতে সমস্যা হয়েছে। আবার চেষ্টা করুন।")
-        print(f"Wallet Save Error: {e}")
-        
-    main_menu(message.chat.id)
 
 if __name__ == '__main__':
     print("Bot is running with Supabase...")
