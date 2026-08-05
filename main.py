@@ -24,7 +24,6 @@ def check_subscription(user_id):
             pass
     return True
 
-# শুধুমাত্র /start কমান্ডের জন্য এটি কাজ করবে
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
     user_id = message.from_user.id
@@ -50,73 +49,71 @@ def send_welcome(message):
     users[user_id] = True
     main_menu(message.chat.id)
 
-@bot.callback_query_handler(func=lambda call: call.data == "check_sub")
+@bot.callback_query_handler(func=lambda call: True)
 def callback_query(call):
     user_id = call.from_user.id
-    if check_subscription(user_id):
-        bot.answer_callback_query(call.id, "Verification Successful!")
-        bot.delete_message(call.message.chat.id, call.message.message_id)
-        users[user_id] = True
-        main_menu(call.message.chat.id)
-    else:
-        bot.answer_callback_query(call.id, "⚠️ আগে সব চ্যানেলগুলোতে জয়েন করুন!", show_alert=True)
+    
+    # সাবস্ক্রাইব চেক বাটন
+    if call.data == "check_sub":
+        if check_subscription(user_id):
+            bot.answer_callback_query(call.id, "Verification Successful!")
+            bot.delete_message(call.message.chat.id, call.message.message_id)
+            users[user_id] = True
+            main_menu(call.message.chat.id)
+        else:
+            bot.answer_callback_query(call.id, "⚠️ আগে সব চ্যানেলগুলোতে জয়েন করুন!", show_alert=True)
+            
+    # ব্যালেন্স চেক বাটন
+    elif call.data == "my_balance":
+        bal = balances.get(str(user_id), 0)
+        bot.answer_callback_query(call.id)
+        bot.send_message(call.message.chat.id, f"💳 Your Current Balance: {bal} টাকা")
+        
+    # রেফার এন্ড আর্ন বাটন
+    elif call.data == "refer_earn":
+        bot_username = bot.get_me().username
+        ref_link = f"https://t.me/{bot_username}?start={user_id}"
+        text = (
+            "🎖️ Per Referral: 1 টাকা\n\n"
+            f"🔗 Your Referral Link: {ref_link}\n\n"
+            "📊 Your Total Referrals: None 📉\n\n"
+            "🚫 Fake and cheat referrals will not be paid"
+        )
+        bot.answer_callback_query(call.id)
+        bot.send_message(call.message.chat.id, text)
+        
+    # সেট ওয়ালেট বাটন
+    elif call.data == "set_wallet":
+        bot.answer_callback_query(call.id)
+        msg = bot.send_message(call.message.chat.id, "📞 আপনার বিকাশ বা নগদ নম্বরটি লিখুন:")
+        bot.register_next_step_handler(msg, save_wallet)
+        
+    # ক্যাশআউট বাটন
+    elif call.data == "cash_out":
+        bal = balances.get(str(user_id), 0)
+        bot.answer_callback_query(call.id)
+        if bal < 10:
+            bot.send_message(call.message.chat.id, "⚠️ আপনার ব্যালেন্স কম আছে। টাকা উত্তোলনের জন্য কমপক্ষে আপনার ব্যালেন্সের 10 টাকা থাকতে হবে ⚠️")
+        else:
+            bot.send_message(call.message.chat.id, "✅ আপনার ক্যাশআউট রিকোয়েস্ট সফলভাবে জমা হয়েছে!")
 
 def main_menu(chat_id):
-    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    markup.row('My Balance Ω', 'Refer & Earn 👯')
-    markup.row('Set Wallet 💎', 'Cash Out 💡')
-    bot.send_message(chat_id, "✨ মূল মেনুতে স্বাগতম:", reply_markup=markup)
-
-@bot.message_handler(func=lambda message: message.text == 'Refer & Earn 👯')
-def refer_earn(message):
-    user_id = message.from_user.id
-    bot_username = bot.get_me().username
-    ref_link = f"https://t.me/{bot_username}?start={user_id}"
-    
-    text = (
-        "🎖️ Per Referral: 1 টাকা\n\n"
-        f"🔗 Your Referral Link: {ref_link}\n\n"
-        "📊 Your Total Referrals: None 📉\n\n"
-        "🚫 Fake and cheat referrals will not be paid"
+    markup = types.InlineKeyboardMarkup()
+    markup.row(
+        types.InlineKeyboardButton("My Balance Ω", callback_data="my_balance"),
+        types.InlineKeyboardButton("Refer & Earn 👯", callback_data="refer_earn")
     )
-    bot.send_message(message.chat.id, text)
-
-@bot.message_handler(func=lambda message: message.text == 'My Balance Ω')
-def my_balance(message):
-    user_id = message.from_user.id
-    bal = balances.get(str(user_id), 0)
-    bot.send_message(message.chat.id, f"💳 Your Current Balance: {bal} টাকা")
-
-@bot.message_handler(func=lambda message: message.text == 'Set Wallet 💎')
-def set_wallet(message):
-    user_id = str(message.from_user.id)
-    current_w = wallets.get(user_id, "Not Set!!")
-    
-    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    markup.row('⚙️ Set Wallet')
-    markup.row('🔙 Back')
-    
-    bot.send_message(message.chat.id, f"📝 Current Wallet: {current_w}\n\n🔍 ওয়ালেট পরিবর্তন করতে ⚙️ সেট ওয়ালেট বাটনে ক্লিক দেন।", reply_markup=markup)
-
-@bot.message_handler(func=lambda message: message.text == '⚙️ Set Wallet')
-def ask_wallet(message):
-    msg = bot.send_message(message.chat.id, "📞 আপনার বিকাশ বা নগদ নম্বরটি লিখুন:")
-    bot.register_next_step_handler(msg, save_wallet)
+    markup.row(
+        types.InlineKeyboardButton("Set Wallet 💎", callback_data="set_wallet"),
+        types.InlineKeyboardButton("Cash Out 💡", callback_data="cash_out")
+    )
+    bot.send_message(chat_id, "✨ মূল মেনুতে স্বাগতম:", reply_markup=markup)
 
 def save_wallet(message):
     user_id = str(message.from_user.id)
     wallets[user_id] = message.text
     bot.send_message(message.chat.id, "✅ সফলভাবে আপনার ওয়ালেট নম্বর সেভ করা হয়েছে!")
     main_menu(message.chat.id)
-
-@bot.message_handler(func=lambda message: message.text == 'Cash Out 💡')
-def cash_out(message):
-    user_id = str(message.from_user.id)
-    bal = balances.get(user_id, 0)
-    if bal < 10:
-        bot.send_message(message.chat.id, "⚠️ আপনার ব্যালেন্স কম আছে। টাকা উত্তোলনের জন্য কমপক্ষে আপনার ব্যালেন্সের 10 টাকা থাকতে হবে ⚠️")
-    else:
-        bot.send_message(message.chat.id, "✅ আপনার ক্যাশআউট রিকোয়েস্ট সফলভাবে জমা হয়েছে!")
 
 if __name__ == '__main__':
     print("Bot is running...")
