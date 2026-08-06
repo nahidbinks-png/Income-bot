@@ -126,7 +126,6 @@ def callback_query(call):
         
     elif call.data == "reset_referrals":
         try:
-            # ব্যালেন্স এবং রেফার শূন্য করার পাশাপাশি ওয়ালেট রিসেট করতে চাইলে নিচের লাইনে কাজ করবে
             supabase.table("users").update({
                 "total_refs": 0, 
                 "balance": 0, 
