@@ -24,6 +24,7 @@ def run_flask():
 
 CHANNELS = ["@YourChannel1", "@YourChannel2"]
 user_states = {}
+pending_referrals = {}
 
 def check_subscription(user_id):
     for channel in CHANNELS:
@@ -38,10 +39,9 @@ def check_subscription(user_id):
 def get_or_create_user(user_id):
     user_id_str = str(user_id)
     try:
+        # ১. আগের 'users' টেবিল হ্যান্ডেল করা
         response = supabase.table("users").select("*").eq("user_id", user_id_str).execute()
-        if response.data:
-            return response.data[0]
-        else:
+        if not response.data:
             new_data = {
                 "user_id": user_id_str, 
                 "balance": 0, 
@@ -49,7 +49,20 @@ def get_or_create_user(user_id):
                 "total_refs": 0
             }
             supabase.table("users").insert(new_data).execute()
-            return new_data
+            user_data = new_data
+        else:
+            user_data = response.data[0]
+
+        # ২. নতুন 'Userdata' টেবিল হ্যান্ডেল করা (আপনার টেবিলের কলাম অনুযায়ী)
+        res_userdata = supabase.table("Userdata").select("*").eq("user_history", int(user_id)).execute()
+        if not res_userdata.data:
+            new_userdata = {
+                "user_history": int(user_id),
+                "total_balace": 0
+            }
+            supabase.table("Userdata").insert(new_userdata).execute()
+            
+        return user_data
     except Exception as e:
         print(f"Supabase Error: {e}")
         return {"user_id": user_id_str, "balance": 0, "wallet": "Not Set!!", "total_refs": 0}
@@ -71,9 +84,13 @@ def send_welcome(message):
     user_id = message.from_user.id
     user_states.pop(user_id, None)
     
+    args = message.text.split()
+    referrer_id = args[1] if len(args) > 1 else None
+
     if not check_subscription(user_id):
-        # রেফারেল কোড সহ সাবস্ক্রিপশন চেক করার জন্য আর্গুমেন্ট পাস করা হচ্ছে
-        args_text = message.text
+        if referrer_id:
+            pending_referrals[user_id] = referrer_id
+            
         markup = types.InlineKeyboardMarkup()
         for ch in CHANNELS:
             markup.add(types.InlineKeyboardButton("Join Channel ↗", url=f"https://t.me/{ch.replace('@', '')}"))
@@ -82,26 +99,29 @@ def send_welcome(message):
         bot.send_message(message.chat.id, f"👋 Hello, 🇧🇩\n**{message.from_user.first_name}** !\n\n📢 Join All Channels To Continue.", reply_markup=markup, parse_mode="Markdown")
         return
 
-    # ১. প্রথমে যে ইউজার স্টার্ট করেছে তার ডাটা সুপাবেজে নিশ্চিত করা (না থাকলে তৈরি হবে)
     get_or_create_user(user_id)
 
-    # ২. রেফারেল হ্যান্ডেল করার অংশ
-    args = message.text.split()
-    if len(args) > 1:
-        referrer_id = args[1]
+    if referrer_id:
         if str(referrer_id) != str(user_id):
             try:
-                # রেফারের ইউজারটি ডেটাবেজে না থাকলে স্বয়ংক্রিয়ভাবে আগে তৈরি করে নেওয়া হবে
                 ref_user_data = get_or_create_user(referrer_id)
-                
                 current_bal = int(ref_user_data.get("balance", 0))
                 current_refs = int(ref_user_data.get("total_refs", 0))
                 
-                new_bal = current_bal + 1
-                new_refs = current_refs + 1
-                
-                # সুপাবেজে আপডেট করা
-                supabase.table("users").update({"balance": new_bal, "total_refs": new_refs}).eq("user_id", str(referrer_id)).execute()
+                # users টেবিলে আপডেট
+                supabase.table("users").update({
+                    "balance": current_bal + 1, 
+                    "total_refs": current_refs + 1
+                }).eq("user_id", str(referrer_id)).execute()
+
+                # নতুন Userdata টেবিলেও ব্যালেন্স আপডেট করা
+                try:
+                    ud_res = supabase.table("Userdata").select("*").eq("user_history", int(referrer_id)).execute()
+                    if ud_res.data:
+                        old_tb = int(ud_res.data[0].get("total_balace", 0))
+                        supabase.table("Userdata").update({"total_balace": old_tb + 1}).eq("user_history", int(referrer_id)).execute()
+                except:
+                    pass
                 
                 bot.send_message(referrer_id, "💰 আপনার বটে নতুন ১টি রেফার হয়েছে এবং আপনার ব্যালেন্স এ ১ টাকা যোগ করা হয়েছে 💰")
             except Exception as e:
@@ -120,7 +140,34 @@ def callback_query(call):
                 bot.delete_message(call.message.chat.id, call.message.message_id)
             except:
                 pass
+            
             get_or_create_user(user_id)
+            
+            if user_id in pending_referrals:
+                referrer_id = pending_referrals.pop(user_id)
+                if str(referrer_id) != str(user_id):
+                    try:
+                        ref_user_data = get_or_create_user(referrer_id)
+                        current_bal = int(ref_user_data.get("balance", 0))
+                        current_refs = int(ref_user_data.get("total_refs", 0))
+                        
+                        supabase.table("users").update({
+                            "balance": current_bal + 1, 
+                            "total_refs": current_refs + 1
+                        }).eq("user_id", str(referrer_id)).execute()
+                        
+                        try:
+                            ud_res = supabase.table("Userdata").select("*").eq("user_history", int(referrer_id)).execute()
+                            if ud_res.data:
+                                old_tb = int(ud_res.data[0].get("total_balace", 0))
+                                supabase.table("Userdata").update({"total_balace": old_tb + 1}).eq("user_history", int(referrer_id)).execute()
+                        except:
+                            pass
+
+                        bot.send_message(referrer_id, "💰 আপনার বটে নতুন ১টি রেফার হয়েছে এবং আপনার ব্যালেন্স এ ১ টাকা যোগ করা হয়েছে 💰")
+                    except Exception as e:
+                        print(f"Pending Referral Error: {e}")
+
             bot.send_message(call.message.chat.id, "✨ মূল মেনুতে স্বাগতম:", reply_markup=get_reply_keyboard())
         else:
             bot.answer_callback_query(call.id, "⚠️ আগে সব চ্যানেলগুলোতে জয়েন করুন!", show_alert=True)
@@ -132,14 +179,12 @@ def callback_query(call):
         
     elif call.data == "reset_referrals":
         try:
-            supabase.table("users").update({
-                "total_refs": 0, 
-                "balance": 0, 
-                "wallet": "Not Set!!"
-            }).eq("user_id", str(user_id)).execute()
+            # উভয় টেবিল থেকেই ইউজারের ডাটা ডিলিট বা রিসেট করা
+            supabase.table("users").delete().eq("user_id", str(user_id)).execute()
+            supabase.table("Userdata").delete().eq("user_history", int(user_id)).execute()
             
             bot.answer_callback_query(call.id, "সফলভাবে রিসেট করা হয়েছে!")
-            bot.send_message(call.message.chat.id, "🔄 আপনার অ্যাকাউন্ট সফলভাবে রিসেট করা হয়েছে।", reply_markup=get_reply_keyboard())
+            bot.send_message(call.message.chat.id, "🔄 আপনার অ্যাকাউন্ট সফলভাবে রিসেট করা হয়েছে। নতুন করে শুরু করতে /start কমান্ড দিন।", reply_markup=types.ReplyKeyboardRemove())
         except Exception as e:
             bot.answer_callback_query(call.id, "রিসেট করতে সমস্যা হয়েছে!", show_alert=True)
             print(f"Reset Error: {e}")
@@ -210,5 +255,5 @@ if __name__ == '__main__':
     t = Thread(target=run_flask)
     t.start()
     
-    print("Bot is running with Flask and Supabase...")
+    print("Bot is running with Flask and Supabase (Dual Tables)...")
     bot.infinity_polling()
