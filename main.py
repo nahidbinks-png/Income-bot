@@ -48,12 +48,19 @@ def get_or_create_user(user_id):
         if response.data:
             return response.data[0]
         else:
-            new_data = {"user_id": user_id_str, "balance": 0, "wallet": "Not Set!!"}
+            new_data = {"user_id": user_id_str, "balance": 0, "wallet": "Not Set!!", "total_refs": 0}
             supabase.table("users").insert(new_data).execute()
             return new_data
     except Exception as e:
         print(f"Supabase Error: {e}")
-        return {"user_id": user_id_str, "balance": 0, "wallet": "Not Set!!"}
+        return {"user_id": user_id_str, "balance": 0, "wallet": "Not Set!!", "total_refs": 0}
+
+# স্থায়ী নিচের মেনু কিবোর্ড (Reply Keyboard)
+def get_reply_keyboard():
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    markup.row("💳 My Balance", "👯 Refer & Earn")
+    markup.row("💎 Set Wallet", "💡 Cash Out")
+    return markup
 
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
@@ -80,14 +87,19 @@ def send_welcome(message):
             try:
                 ref_user = supabase.table("users").select("*").eq("user_id", referrer_id).execute()
                 if ref_user.data:
-                    current_bal = ref_user.data[0].get("balance", 0)
+                    current_data = ref_user.data[0]
+                    current_bal = current_data.get("balance", 0)
+                    current_refs = current_data.get("total_refs", 0)
+                    
                     new_bal = current_bal + 1
-                    supabase.table("users").update({"balance": new_bal}).eq("user_id", referrer_id).execute()
-                    bot.send_message(referrer_id, "💰 আপনার ব্যালেন্স এ ১ টাকা যোগ করা হয়েছে 💰")
+                    new_refs = current_refs + 1
+                    
+                    supabase.table("users").update({"balance": new_bal, "total_refs": new_refs}).eq("user_id", referrer_id).execute()
+                    bot.send_message(referrer_id, "💰 আপনার বটে নতুন ১টি রেফার হয়েছে এবং আপনার ব্যালেন্স এ ১ টাকা যোগ করা হয়েছে 💰")
             except Exception as e:
                 print(f"Referral Error: {e}")
 
-    main_menu(message.chat.id)
+    bot.send_message(message.chat.id, "✨ মূল মেনুতে স্বাগতম:", reply_markup=get_reply_keyboard())
 
 @bot.callback_query_handler(func=lambda call: True)
 def callback_query(call):
@@ -101,89 +113,72 @@ def callback_query(call):
             except:
                 pass
             get_or_create_user(user_id)
-            main_menu(call.message.chat.id)
+            bot.send_message(call.message.chat.id, "✨ মূল মেনুতে স্বাগতম:", reply_markup=get_reply_keyboard())
         else:
             bot.answer_callback_query(call.id, "⚠️ আগে সব চ্যানেলগুলোতে জয়েন করুন!", show_alert=True)
             
-    elif call.data == "my_balance":
+    elif call.data == "change_wallet":
+        user_states[user_id] = "waiting_for_wallet"
+        bot.answer_callback_query(call.id)
+        bot.send_message(call.message.chat.id, "📞 আপনার বিকাশ বা নগদ নম্বরটি এখন চ্যাটে লিখে পাঠান:")
+
+@bot.message_handler(func=lambda message: True)
+def handle_text_messages(message):
+    user_id = message.from_user.id
+    text = message.text
+    
+    if user_states.get(user_id) == "waiting_for_wallet":
+        wallet_number = text
         user_states.pop(user_id, None)
+        
+        try:
+            supabase.table("users").update({"wallet": wallet_number}).eq("user_id", str(user_id)).execute()
+            bot.send_message(message.chat.id, "✅ সফলভাবে আপনার ওয়ালেট নম্বর সেভ করা হয়েছে!", reply_markup=get_reply_keyboard())
+        except Exception as e:
+            bot.send_message(message.chat.id, "❌ ওয়ালেট সেভ করতে সমস্যা হয়েছে। আবার চেষ্টা করুন।", reply_markup=get_reply_keyboard())
+            print(f"Wallet Save Error: {e}")
+        return
+
+    # নিচের Reply Keyboard এর বাটনগুলোর টেক্সট হ্যান্ডেলিং
+    if text == "💳 My Balance":
         user_data = get_or_create_user(user_id)
         bal = user_data.get("balance", 0)
-        bot.answer_callback_query(call.id)
-        bot.send_message(call.message.chat.id, f"💳 Your Current Balance: {bal} টাকা")
+        bot.send_message(message.chat.id, f"💳 Your Current Balance: {bal} টাকা", reply_markup=get_reply_keyboard())
         
-    elif call.data == "refer_earn":
-        user_states.pop(user_id, None)
+    elif text == "👯 Refer & Earn":
         bot_username = bot.get_me().username
         ref_link = f"https://t.me/{bot_username}?start={user_id}"
-        text = (
+        user_data = get_or_create_user(user_id)
+        total_refs = user_data.get("total_refs", 0)
+        
+        ref_text = (
             "🎖️ Per Referral: 1 টাকা\n\n"
             f"🔗 Your Referral Link: {ref_link}\n\n"
-            "📊 Your Total Referrals: None 📉\n\n"
+            f"📊 Your Total Referrals: {total_refs} 📈\n\n"
             "🚫 Fake and cheat referrals will not be paid"
         )
-        bot.answer_callback_query(call.id)
-        bot.send_message(call.message.chat.id, text)
+        bot.send_message(message.chat.id, ref_text, reply_markup=get_reply_keyboard())
         
-    elif call.data == "set_wallet":
-        user_states.pop(user_id, None)
+    elif text == "💎 Set Wallet":
         user_data = get_or_create_user(user_id)
         current_w = user_data.get("wallet", "Not Set!!")
         
         markup = types.InlineKeyboardMarkup()
         markup.add(types.InlineKeyboardButton("⚙️ Change Wallet", callback_data="change_wallet"))
         
-        bot.answer_callback_query(call.id)
-        bot.send_message(call.message.chat.id, f"📝 Current Wallet: {current_w}", reply_markup=markup)
+        bot.send_message(message.chat.id, f"📝 Current Wallet: {current_w}", reply_markup=markup)
         
-    elif call.data == "change_wallet":
-        user_states[user_id] = "waiting_for_wallet"
-        bot.answer_callback_query(call.id)
-        bot.send_message(call.message.chat.id, "📞 আপনার বিকাশ বা নগদ নম্বরটি এখন চ্যাটে লিখে পাঠান:")
-        
-    elif call.data == "cash_out":
-        user_states.pop(user_id, None)
+    elif text == "💡 Cash Out":
         user_data = get_or_create_user(user_id)
         bal = user_data.get("balance", 0)
-        bot.answer_callback_query(call.id)
         if bal < 10:
-            bot.send_message(call.message.chat.id, "⚠️ আপনার ব্যালেন্স কম আছে। টাকা উত্তোলনের জন্য কমপক্ষে আপনার ব্যালেন্সের 10 টাকা থাকতে হবে ⚠️")
+            bot.send_message(message.chat.id, "⚠️ আপনার ব্যালেন্স কম আছে। টাকা উত্তোলনের জন্য কমপক্ষে আপনার ব্যালেন্সের 10 টাকা থাকতে হবে ⚠️", reply_markup=get_reply_keyboard())
         else:
-            bot.send_message(call.message.chat.id, "✅ আপনার ক্যাশআউট রিকোয়েস্ট সফলভাবে জমা হয়েছে!")
-
-@bot.message_handler(func=lambda message: True)
-def handle_text_messages(message):
-    user_id = message.from_user.id
-    
-    if user_states.get(user_id) == "waiting_for_wallet":
-        wallet_number = message.text
-        user_states.pop(user_id, None)
-        
-        try:
-            supabase.table("users").update({"wallet": wallet_number}).eq("user_id", str(user_id)).execute()
-            bot.send_message(message.chat.id, "✅ সফলভাবে আপনার ওয়ালেট নম্বর সেভ করা হয়েছে!")
-        except Exception as e:
-            bot.send_message(message.chat.id, "❌ ওয়ালেট সেভ করতে সমস্যা হয়েছে। আবার চেষ্টা করুন।")
-            print(f"Wallet Save Error: {e}")
-            
-        main_menu(message.chat.id)
+            bot.send_message(message.chat.id, "✅ আপনার ক্যাশআউট রিকোয়েস্ট সফলভাবে জমা হয়েছে!", reply_markup=get_reply_keyboard())
     else:
-        pass
-
-def main_menu(chat_id):
-    markup = types.InlineKeyboardMarkup()
-    markup.row(
-        types.InlineKeyboardButton("My Balance Ω", callback_data="my_balance"),
-        types.InlineKeyboardButton("Refer & Earn 👯", callback_data="refer_earn")
-    )
-    markup.row(
-        types.InlineKeyboardButton("Set Wallet 💎", callback_data="set_wallet"),
-        types.InlineKeyboardButton("Cash Out 💡", callback_data="cash_out")
-    )
-    bot.send_message(chat_id, "✨ মূল মেনুতে স্বাগতম:", reply_markup=markup)
+        bot.send_message(message.chat.id, "দয়া করে নিচের মেনু থেকে অপشن বেছে নিন:", reply_markup=get_reply_keyboard())
 
 if __name__ == '__main__':
-    # ফ্লাস্ক সার্ভার ব্যাকগ্রাউন্ডে রান করানো যাতে রেন্ডারের পোর্ট টাইমআউট এরর না আসে
     t = Thread(target=run_flask)
     t.start()
     
