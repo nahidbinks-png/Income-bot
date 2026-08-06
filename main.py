@@ -40,7 +40,7 @@ def check_subscription(user_id):
             pass
     return True
 
-# সুপাবেজ থেকে ইউজারের ডাটা আনা বা না থাকলে তৈরি করা
+# সুপাবেজ থেকে ইউজারের ডাটা আনা বা না থাকলে তৈরি করা (সুপাবেজে সেভ রাখার জন্য)
 def get_or_create_user(user_id):
     user_id_str = str(user_id)
     try:
@@ -105,6 +105,7 @@ def send_welcome(message):
                     new_bal = current_bal + 1
                     new_refs = current_refs + 1
                     
+                    # সুপাবেজে ইউজারের ব্যালেন্স এবং রেফার আপডেট করা
                     supabase.table("users").update({"balance": new_bal, "total_refs": new_refs}).eq("user_id", referrer_id).execute()
                     bot.send_message(referrer_id, "💰 আপনার বটে নতুন ১টি রেফার হয়েছে এবং আপনার ব্যালেন্স এ ১ টাকা যোগ করা হয়েছে 💰")
             except Exception as e:
@@ -133,12 +134,12 @@ def callback_query(call):
         bot.answer_callback_query(call.id)
         bot.send_message(call.message.chat.id, "📞 আপনার বিকাশ বা নগদ নম্বরটি এখন চ্যাটে লিখে পাঠান:")
         
-    elif call.data == "reset_referrals":
-        # ইউজারের রেফার কাউন্ট শূন্য করার অপশন
+    elif call.data == "reset_data":
+        # সুপাবেজ থেকে ইউজারের ডেটা রিসেট বা জিরো করা
         try:
-            supabase.table("users").update({"total_refs": 0}).eq("user_id", str(user_id)).execute()
-            bot.answer_callback_query(call.id, "সফলভাবে আপনার রেফার ডাটা রিসেট করা হয়েছে!")
-            bot.send_message(call.message.chat.id, "🔄 আপনার রেফারেল লিস্ট সফলভাবে রিসেট (Reset) করা হয়েছে। এখন মোট রেফার ০ দেখাবে।")
+            supabase.table("users").update({"balance": 0, "total_refs": 0, "wallet": "Not Set!!"}).eq("user_id", str(user_id)).execute()
+            bot.answer_callback_query(call.id, "ডেটা সফলভাবে রিসেট করা হয়েছে!")
+            bot.send_message(call.message.chat.id, "🔄 আপনার অ্যাকাউন্ট ডেটা (ব্যালেন্স ও রেফার) সফলভাবে রিসেট করা হয়েছে।", reply_markup=get_reply_keyboard())
         except Exception as e:
             bot.answer_callback_query(call.id, "রিসেট করতে সমস্যা হয়েছে!", show_alert=True)
             print(f"Reset Error: {e}")
@@ -153,8 +154,9 @@ def handle_text_messages(message):
         user_states.pop(user_id, None)
         
         try:
+            # সুপাবেজে ওয়ালেট নম্বর সেভ করা
             supabase.table("users").update({"wallet": wallet_number}).eq("user_id", str(user_id)).execute()
-            bot.send_message(message.chat.id, "✅ সফলভাবে আপনার ওয়ালেট নম্বর সেভ করা হয়েছে!", reply_markup=get_reply_keyboard())
+            bot.send_message(message.chat.id, "✅ সফলভাবে আপনার ওয়ালেট নম্বর সুপাবেজে সেভ করা হয়েছে!", reply_markup=get_reply_keyboard())
         except Exception as e:
             bot.send_message(message.chat.id, "❌ ওয়ালেট সেভ করতে সমস্যা হয়েছে। আবার চেষ্টা করুন।", reply_markup=get_reply_keyboard())
             print(f"Wallet Save Error: {e}")
@@ -174,7 +176,7 @@ def handle_text_messages(message):
         user_wallet = user_data.get("wallet", "Not Set!!")
         
         ref_text = (
-            f"🆔 Your Referral ID: `{user_id}`\n"
+            f"🆔 Your User ID: `{user_id}`\n"
             f"💼 Connected Wallet: {user_wallet}\n"
             "🎖️ Per Referral: 1 টাকা\n\n"
             f"🔗 Your Referral Link: {ref_link}\n\n"
@@ -182,9 +184,9 @@ def handle_text_messages(message):
             "🚫 Fake and cheat referrals will not be paid"
         )
         
-        # রেফার রিসেট করার জন্য একটি ইনলাইন বাটন যুক্ত করা হলো
+        # রিসেট করার জন্য ইনলাইন বাটন যুক্ত করা হলো
         markup = types.InlineKeyboardMarkup()
-        markup.add(types.InlineKeyboardButton("🔄 Reset Referrals", callback_data="reset_referrals"))
+        markup.add(types.InlineKeyboardButton("🔄 Reset Data", callback_data="reset_data"))
         
         bot.send_message(message.chat.id, ref_text, reply_markup=markup, parse_mode="Markdown")
         
