@@ -126,11 +126,11 @@ def callback_query(call):
         
     elif call.data == "reset_referrals":
         try:
-            # সুপাবেজ থেকে ইউজারের সম্পূর্ণ ডেটা ডিলিট করে দেওয়া হবে যাতে একদম ফ্রেশ অ্যাকাউন্ট হয়ে যায়
+            # সুপাবেজ থেকে ইউজারের ডাটা ডিলিট করে দেওয়া যাতে নতুন করে স্টার্ট হতে পারে
             supabase.table("users").delete().eq("user_id", str(user_id)).execute()
             
-            bot.answer_callback_query(call.id, "সফলভাবে অ্যাকাউন্ট রিসেট ও ডিলিট করা হয়েছে!")
-            bot.send_message(call.message.chat.id, "🔄 আপনার অ্যাকাউন্ট সম্পূর্ণ রিসেট করা হয়েছে। নতুন করে শুরু করতে /start কমান্ড দিন।", reply_markup=types.ReplyKeyboardRemove())
+            bot.answer_callback_query(call.id, "সফলভাবে রিসেট করা হয়েছে!")
+            bot.send_message(call.message.chat.id, "🔄 আপনার অ্যাকাউন্ট সফলভাবে রিসেট করা হয়েছে। নতুন করে শুরু করতে /start কমান্ড দিন।", reply_markup=types.ReplyKeyboardRemove())
         except Exception as e:
             bot.answer_callback_query(call.id, "রিসেট করতে সমস্যা হয়েছে!", show_alert=True)
             print(f"Reset Error: {e}")
