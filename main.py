@@ -126,9 +126,15 @@ def callback_query(call):
         
     elif call.data == "reset_referrals":
         try:
-            supabase.table("users").update({"total_refs": 0, "balance": 0}).eq("user_id", str(user_id)).execute()
+            # ব্যালেন্স এবং রেফার শূন্য করার পাশাপাশি ওয়ালেট রিসেট করতে চাইলে নিচের লাইনে কাজ করবে
+            supabase.table("users").update({
+                "total_refs": 0, 
+                "balance": 0, 
+                "wallet": "Not Set!!"
+            }).eq("user_id", str(user_id)).execute()
+            
             bot.answer_callback_query(call.id, "সফলভাবে রিসেট করা হয়েছে!")
-            bot.send_message(call.message.chat.id, "🔄 আপনার রেফার ও ব্যালেন্স সফলভাবে রিসেট করা হয়েছে।")
+            bot.send_message(call.message.chat.id, "🔄 আপনার অ্যাকাউন্ট সফলভাবে রিসেট করা হয়েছে।", reply_markup=get_reply_keyboard())
         except Exception as e:
             bot.answer_callback_query(call.id, "রিসেট করতে সমস্যা হয়েছে!", show_alert=True)
             print(f"Reset Error: {e}")
@@ -157,14 +163,13 @@ def handle_text_messages(message):
         
     elif text == "👯 Refer & Earn":
         bot_username = bot.get_me().username
-        ref_link = `https://t.me/{bot_username}?start={user_id}` # Keep literal syntax check if needed, fixed string format below:
         ref_link = f"https://t.me/{bot_username}?start={user_id}"
         user_data = get_or_create_user(user_id)
         total_refs = user_data.get("total_refs", 0)
         user_wallet = user_data.get("wallet", "Not Set!!")
         
         ref_text = (
-            f"🆔 Your Referral ID: `{user_id}`\n"
+            f"🆔 Your User ID: `{user_id}`\n"
             f"💼 Connected Wallet: {user_wallet}\n"
             "🎖️ Per Referral: 1 টাকা\n\n"
             f"🔗 Your Referral Link: {ref_link}\n\n"
@@ -202,4 +207,3 @@ if __name__ == '__main__':
     
     print("Bot is running with Flask and Supabase...")
     bot.infinity_polling()
-        
