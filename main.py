@@ -55,11 +55,17 @@ def get_or_create_user(user_id):
         print(f"Supabase Error: {e}")
         return {"user_id": user_id_str, "balance": 0, "wallet": "Not Set!!", "total_refs": 0}
 
-# স্থায়ী নিচের মেনু কিবোর্ড (Reply Keyboard)
+# স্থায়ী নিচের মেনু কিবোর্ড (Reply Keyboard) - সঠিকভাবে সারিতে সাজানো
 def get_reply_keyboard():
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    markup.row("💳 My Balance", "👯 Refer & Earn")
-    markup.row("💎 Set Wallet", "💡 Cash Out")
+    markup.row(
+        types.KeyboardButton("💳 My Balance"),
+        types.KeyboardButton("👯 Refer & Earn")
+    )
+    markup.row(
+        types.KeyboardButton("💎 Set Wallet"),
+        types.KeyboardButton("💡 Cash Out")
+    )
     return markup
 
 @bot.message_handler(commands=['start'])
@@ -176,7 +182,7 @@ def handle_text_messages(message):
         else:
             bot.send_message(message.chat.id, "✅ আপনার ক্যাশআউট রিকোয়েস্ট সফলভাবে জমা হয়েছে!", reply_markup=get_reply_keyboard())
     else:
-        bot.send_message(message.chat.id, "দয়া করে নিচের মেনু থেকে অপشن বেছে নিন:", reply_markup=get_reply_keyboard())
+        bot.send_message(message.chat.id, "দয়া করে নিচের মেনু থেকে অপশন বেছে নিন:", reply_markup=get_reply_keyboard())
 
 if __name__ == '__main__':
     t = Thread(target=run_flask)
