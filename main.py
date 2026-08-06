@@ -5,7 +5,6 @@ from supabase import create_client, Client
 from flask import Flask
 from threading import Thread
 
-# Render-এর Environment Variable থেকে টোকেন এবং সুপাবেজ ক্রিপডেনশিয়াল নেওয়া
 BOTTOKEN = os.getenv('BOTTOKEN')
 SUPABASE_URL = os.getenv('SUPABASE_URL')
 SUPABASE_KEY = os.getenv('SUPABASE_KEY')
@@ -13,7 +12,6 @@ SUPABASE_KEY = os.getenv('SUPABASE_KEY')
 bot = telebot.TeleBot(BOTTOKEN)
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# ফ্লাস্ক সার্ভার তৈরি (রেন্ডারের পোর্ট প্রবলেম সমাধানের জন্য)
 app = Flask('')
 
 @app.route('/')
@@ -24,10 +22,7 @@ def run_flask():
     port = int(os.environ.get("PORT", 10000))
     app.run(host='0.0.0.0', port=port)
 
-# বাধ্যতামূলক চ্যানেলগুলোর লিস্ট
 CHANNELS = ["@YourChannel1", "@YourChannel2"]
-
-# ইউজার স্টেট ট্র্যাক করার জন্য ডিকশনারি
 user_states = {}
 
 def check_subscription(user_id):
@@ -40,7 +35,6 @@ def check_subscription(user_id):
             pass
     return True
 
-# সুপাবেজ থেকে ইউজারের ডাটা আনা বা না থাকলে তৈরি করা (সুপাবেজে সেভ রাখার জন্য)
 def get_or_create_user(user_id):
     user_id_str = str(user_id)
     try:
@@ -60,7 +54,6 @@ def get_or_create_user(user_id):
         print(f"Supabase Error: {e}")
         return {"user_id": user_id_str, "balance": 0, "wallet": "Not Set!!", "total_refs": 0}
 
-# স্থায়ী নিচের মেনু কিবোর্ড (Reply Keyboard) - সঠিকভাবে সারিতে সাজানো
 def get_reply_keyboard():
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
     markup.row(
@@ -78,7 +71,6 @@ def send_welcome(message):
     user_id = message.from_user.id
     user_states.pop(user_id, None)
     
-    # চ্যানেল সাবস্ক্রাইব করা আছে কিনা চেক করা
     if not check_subscription(user_id):
         markup = types.InlineKeyboardMarkup()
         for ch in CHANNELS:
@@ -90,7 +82,6 @@ def send_welcome(message):
 
     get_or_create_user(user_id)
 
-    # রেফারেল হ্যান্ডেলিং
     args = message.text.split()
     if len(args) > 1:
         referrer_id = args[1]
@@ -99,13 +90,12 @@ def send_welcome(message):
                 ref_user = supabase.table("users").select("*").eq("user_id", referrer_id).execute()
                 if ref_user.data:
                     current_data = ref_user.data[0]
-                    current_bal = current_data.get("balance", 0)
-                    current_refs = current_data.get("total_refs", 0)
+                    current_bal = int(current_data.get("balance", 0))
+                    current_refs = int(current_data.get("total_refs", 0))
                     
                     new_bal = current_bal + 1
                     new_refs = current_refs + 1
                     
-                    # সুপাবেজে ইউজারের ব্যালেন্স এবং রেফার আপডেট করা
                     supabase.table("users").update({"balance": new_bal, "total_refs": new_refs}).eq("user_id", referrer_id).execute()
                     bot.send_message(referrer_id, "💰 আপনার বটে নতুন ১টি রেফার হয়েছে এবং আপনার ব্যালেন্স এ ১ টাকা যোগ করা হয়েছে 💰")
             except Exception as e:
@@ -134,12 +124,11 @@ def callback_query(call):
         bot.answer_callback_query(call.id)
         bot.send_message(call.message.chat.id, "📞 আপনার বিকাশ বা নগদ নম্বরটি এখন চ্যাটে লিখে পাঠান:")
         
-    elif call.data == "reset_data":
-        # সুপাবেজ থেকে ইউজারের ডেটা রিসেট বা জিরো করা
+    elif call.data == "reset_referrals":
         try:
-            supabase.table("users").update({"balance": 0, "total_refs": 0, "wallet": "Not Set!!"}).eq("user_id", str(user_id)).execute()
-            bot.answer_callback_query(call.id, "ডেটা সফলভাবে রিসেট করা হয়েছে!")
-            bot.send_message(call.message.chat.id, "🔄 আপনার অ্যাকাউন্ট ডেটা (ব্যালেন্স ও রেফার) সফলভাবে রিসেট করা হয়েছে।", reply_markup=get_reply_keyboard())
+            supabase.table("users").update({"total_refs": 0, "balance": 0}).eq("user_id", str(user_id)).execute()
+            bot.answer_callback_query(call.id, "সফলভাবে রিসেট করা হয়েছে!")
+            bot.send_message(call.message.chat.id, "🔄 আপনার রেফার ও ব্যালেন্স সফলভাবে রিসেট করা হয়েছে।")
         except Exception as e:
             bot.answer_callback_query(call.id, "রিসেট করতে সমস্যা হয়েছে!", show_alert=True)
             print(f"Reset Error: {e}")
@@ -154,15 +143,13 @@ def handle_text_messages(message):
         user_states.pop(user_id, None)
         
         try:
-            # সুপাবেজে ওয়ালেট নম্বর সেভ করা
             supabase.table("users").update({"wallet": wallet_number}).eq("user_id", str(user_id)).execute()
-            bot.send_message(message.chat.id, "✅ সফলভাবে আপনার ওয়ালেট নম্বর সুপাবেজে সেভ করা হয়েছে!", reply_markup=get_reply_keyboard())
+            bot.send_message(message.chat.id, "✅ সফলভাবে আপনার ওয়ালেট নম্বর সেভ করা হয়েছে!", reply_markup=get_reply_keyboard())
         except Exception as e:
             bot.send_message(message.chat.id, "❌ ওয়ালেট সেভ করতে সমস্যা হয়েছে। আবার চেষ্টা করুন।", reply_markup=get_reply_keyboard())
             print(f"Wallet Save Error: {e}")
         return
 
-    # নিচের Reply Keyboard এর বাটনগুলোর টেক্সট হ্যান্ডেলিং
     if text == "💳 My Balance":
         user_data = get_or_create_user(user_id)
         bal = user_data.get("balance", 0)
@@ -170,13 +157,14 @@ def handle_text_messages(message):
         
     elif text == "👯 Refer & Earn":
         bot_username = bot.get_me().username
+        ref_link = `https://t.me/{bot_username}?start={user_id}` # Keep literal syntax check if needed, fixed string format below:
         ref_link = f"https://t.me/{bot_username}?start={user_id}"
         user_data = get_or_create_user(user_id)
         total_refs = user_data.get("total_refs", 0)
         user_wallet = user_data.get("wallet", "Not Set!!")
         
         ref_text = (
-            f"🆔 Your User ID: `{user_id}`\n"
+            f"🆔 Your Referral ID: `{user_id}`\n"
             f"💼 Connected Wallet: {user_wallet}\n"
             "🎖️ Per Referral: 1 টাকা\n\n"
             f"🔗 Your Referral Link: {ref_link}\n\n"
@@ -184,9 +172,8 @@ def handle_text_messages(message):
             "🚫 Fake and cheat referrals will not be paid"
         )
         
-        # রিসেট করার জন্য ইনলাইন বাটন যুক্ত করা হলো
         markup = types.InlineKeyboardMarkup()
-        markup.add(types.InlineKeyboardButton("🔄 Reset Data", callback_data="reset_data"))
+        markup.add(types.InlineKeyboardButton("🔄 Reset Referrals", callback_data="reset_referrals"))
         
         bot.send_message(message.chat.id, ref_text, reply_markup=markup, parse_mode="Markdown")
         
@@ -215,3 +202,4 @@ if __name__ == '__main__':
     
     print("Bot is running with Flask and Supabase...")
     bot.infinity_polling()
+        
