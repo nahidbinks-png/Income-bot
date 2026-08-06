@@ -48,7 +48,12 @@ def get_or_create_user(user_id):
         if response.data:
             return response.data[0]
         else:
-            new_data = {"user_id": user_id_str, "balance": 0, "wallet": "Not Set!!", "total_refs": 0}
+            new_data = {
+                "user_id": user_id_str, 
+                "balance": 0, 
+                "wallet": "Not Set!!", 
+                "total_refs": 0
+            }
             supabase.table("users").insert(new_data).execute()
             return new_data
     except Exception as e:
@@ -127,6 +132,16 @@ def callback_query(call):
         user_states[user_id] = "waiting_for_wallet"
         bot.answer_callback_query(call.id)
         bot.send_message(call.message.chat.id, "📞 আপনার বিকাশ বা নগদ নম্বরটি এখন চ্যাটে লিখে পাঠান:")
+        
+    elif call.data == "reset_referrals":
+        # ইউজারের রেফার কাউন্ট শূন্য করার অপশন
+        try:
+            supabase.table("users").update({"total_refs": 0}).eq("user_id", str(user_id)).execute()
+            bot.answer_callback_query(call.id, "সফলভাবে আপনার রেফার ডাটা রিসেট করা হয়েছে!")
+            bot.send_message(call.message.chat.id, "🔄 আপনার রেফারেল লিস্ট সফলভাবে রিসেট (Reset) করা হয়েছে। এখন মোট রেফার ০ দেখাবে।")
+        except Exception as e:
+            bot.answer_callback_query(call.id, "রিসেট করতে সমস্যা হয়েছে!", show_alert=True)
+            print(f"Reset Error: {e}")
 
 @bot.message_handler(func=lambda message: True)
 def handle_text_messages(message):
@@ -156,14 +171,22 @@ def handle_text_messages(message):
         ref_link = f"https://t.me/{bot_username}?start={user_id}"
         user_data = get_or_create_user(user_id)
         total_refs = user_data.get("total_refs", 0)
+        user_wallet = user_data.get("wallet", "Not Set!!")
         
         ref_text = (
+            f"🆔 Your Referral ID: `{user_id}`\n"
+            f"💼 Connected Wallet: {user_wallet}\n"
             "🎖️ Per Referral: 1 টাকা\n\n"
             f"🔗 Your Referral Link: {ref_link}\n\n"
             f"📊 Your Total Referrals: {total_refs} 📈\n\n"
             "🚫 Fake and cheat referrals will not be paid"
         )
-        bot.send_message(message.chat.id, ref_text, reply_markup=get_reply_keyboard())
+        
+        # রেফার রিসেট করার জন্য একটি ইনলাইন বাটন যুক্ত করা হলো
+        markup = types.InlineKeyboardMarkup()
+        markup.add(types.InlineKeyboardButton("🔄 Reset Referrals", callback_data="reset_referrals"))
+        
+        bot.send_message(message.chat.id, ref_text, reply_markup=markup, parse_mode="Markdown")
         
     elif text == "💎 Set Wallet":
         user_data = get_or_create_user(user_id)
