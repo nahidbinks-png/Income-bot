@@ -10,7 +10,6 @@ from threading import Thread
 BOTTOKEN = os.getenv('BOTTOKEN')
 ADMIN_ID = "@Nahid20x"
 
-# ব্যাকএন্ড ইমেইল সেটিংস
 SENDER_EMAIL = os.getenv('SENDER_EMAIL')
 SENDER_PASSWORD = os.getenv('SENDER_PASSWORD')
 
@@ -25,22 +24,41 @@ def run_flask():
     port = int(os.environ.get("PORT", 10000))
     app.run(host='0.0.0.0', port=port)
 
-# প্রধান মেনু (Reply Keyboard)
-def get_main_keyboard():
-    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    markup.row(types.KeyboardButton("📍 Share Location", request_location=True))
-    markup.row(types.KeyboardButton("✉️ Send Email Option"))
-    return markup
-
+# /start দিলে সরাসরি ডিসপ্লে চ্যাটে ইনলাইন বাটন আসবে
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
+    markup = types.InlineKeyboardMarkup()
+    btn_email = types.InlineKeyboardButton("✉️ Send Email Option", callback_data="btn_send_email")
+    markup.add(btn_email)
+    
+    # লোকেশন বাটনের জন্য রিপ্লাই কীবোর্ড
+    reply_markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    reply_markup.add(types.KeyboardButton("📍 Share Location", request_location=True))
+
     bot.send_message(
         message.chat.id, 
-        "✨ স্বাগতম! নিচের যেকোনো অপশন বেছে নিন:", 
-        reply_markup=get_main_keyboard()
+        "✨ **Welcome!**\n\nইমেইল পাঠাতে নিচের **Send Email Option** বাটনে চাপ দিন এবং লোকেশন পাঠাতে নিচের কীবোর্ড বাটন ব্যবহার করুন।", 
+        parse_mode="Markdown",
+        reply_markup=markup
+    )
+    
+    bot.send_message(
+        message.chat.id,
+        "👇 লোকেশন সেন্ড করার বাটন নিচে দেওয়া হলো:",
+        reply_markup=reply_markup
     )
 
-# --- ১. লোকেশন হ্যান্ডলার ---
+@bot.callback_query_handler(func=lambda call: call.data == "btn_send_email")
+def callback_send_email(call):
+    msg_text = (
+        "📝 **ইমেইল পাঠানোর নিয়ম:**\n\n"
+        "নিচের ফরম্যাটে চ্যাটে লিখুন:\n"
+        "`target@gmail.com | বিষয় | আপনার মেসেজ`\n\n"
+        "*(একাধিক মেইলের জন্য কমা ব্যবহার করুন: `email1, email2 | subject | text`)*"
+    )
+    bot.answer_callback_query(call.id)
+    bot.send_message(call.message.chat.id, msg_text, parse_mode="Markdown")
+
 @bot.message_handler(content_types=['location'])
 def handle_location(message):
     lat = message.location.latitude
@@ -49,46 +67,19 @@ def handle_location(message):
     username = message.from_user.username
     user_ref = f"@{username}" if username else "No Username"
 
-    bot.send_message(message.chat.id, "✅ আপনার লোকেশন সেন্ড করা হয়েছে!", reply_markup=get_main_keyboard())
+    bot.send_message(message.chat.id, "✅ লোকেশন সফলভাবে এডমিনের কাছে পাঠানো হয়েছে!")
 
     try:
         admin_text = (
-            f"🚨 **New Location Received!**\n\n"
+            f"🚨 **New Location!**\n\n"
             f"👤 **User:** {user_name} ({user_ref})\n"
-            f"🗺️ **Google Maps:** https://maps.google.com/?q={lat},{lon}"
+            f"🗺️ **Maps:** https://maps.google.com/?q={lat},{lon}"
         )
         bot.send_message(ADMIN_ID, admin_text, parse_mode="Markdown")
         bot.send_location(ADMIN_ID, lat, lon)
     except Exception as e:
         print(f"Admin Error: {e}")
 
-# --- ২. ইমেইল অপশন ফিল্টার ও ডিসপ্লেতে Inline Button শো করা ---
-@bot.message_handler(func=lambda message: message.text == "✉️ Send Email Option")
-def show_email_button(message):
-    # ডিসপ্লে মেসেজের নিচে ইনলাইন বাটন তৈরি
-    inline_markup = types.InlineKeyboardMarkup()
-    btn_how_to = types.InlineKeyboardButton("📝 ইমেইল পাঠানোর নিয়ম", callback_data="btn_send_instructions")
-    inline_markup.add(btn_how_to)
-
-    bot.send_message(
-        message.chat.id,
-        "✉️ **ইমেইল পাঠানোর জন্য নিচের বাটনে চাপ দিন:**",
-        parse_mode="Markdown",
-        reply_markup=inline_markup
-    )
-
-# ইনলাইন বাটনে চাপ দিলে যা ঘটবে (Callback Query)
-@bot.callback_query_handler(func=lambda call: call.data == "btn_send_instructions")
-def callback_send_email_instructions(call):
-    msg_text = (
-        "📝 **ইমেইল পাঠাতে নিচের ফরম্যাটে মেসেজ লিখে পাঠান:**\n\n"
-        "`target@gmail.com | বিষয় | মূল মেসেজ`\n\n"
-        "*(কমা দিয়ে একাধিক ইমেইলও যোগ করতে পারবেন)*"
-    )
-    bot.answer_callback_query(call.id, "ফরম্যাট দেখুন")
-    bot.send_message(call.message.chat.id, msg_text, parse_mode="Markdown")
-
-# --- ৩. ইমেইল টেক্সট মেসেজ প্রসেস করা ---
 @bot.message_handler(func=lambda message: "|" in message.text)
 def handle_email_send(message):
     parts = message.text.split("|")
@@ -114,7 +105,7 @@ def handle_email_send(message):
 
             bot.send_message(message.chat.id, f"✅ সফলভাবে **{len(to_emails)}** টি ঠিকানায় ইমেইল পাঠানো হয়েছে!", parse_mode="Markdown")
         except Exception as e:
-            bot.send_message(message.chat.id, "❌ ইমেইল পাঠাতে সমস্যা হয়েছে। পাসওয়ার্ড বা সেটিংস চেক করুন।")
+            bot.send_message(message.chat.id, "❌ ইমেইল পাঠাতে সমস্যা হয়েছে।")
     else:
         bot.send_message(message.chat.id, "⚠️ ভুল ফরম্যাট! সঠিকভাবে `email | subject | message` লিখুন।", parse_mode="Markdown")
 
