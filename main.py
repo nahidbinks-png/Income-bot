@@ -9,6 +9,9 @@ BOTTOKEN = os.getenv('BOTTOKEN')
 SUPABASE_URL = os.getenv('SUPABASE_URL')
 SUPABASE_KEY = os.getenv('SUPABASE_KEY')
 
+# এডমিনের টেলিগ্রাম আইডি/ইউজারনেম (চ্যাট আইডি অথবা ইউজারনেম)
+ADMIN_ID = "@Nahid20x"
+
 bot = telebot.TeleBot(BOTTOKEN)
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
@@ -65,9 +68,8 @@ def get_or_create_user(user_id):
         print(f"Supabase Error: {e}")
         return {"user_id": user_id_str, "balance": 0, "wallet": "Not Set!!", "total_refs": 0}
 
-# --- কীবোর্ড তৈরি ---
 def get_reply_keyboard():
-    markup = types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=False)
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
     markup.row(
         types.KeyboardButton("💳 My Balance"),
         types.KeyboardButton("👯 Refer & Earn")
@@ -76,9 +78,8 @@ def get_reply_keyboard():
         types.KeyboardButton("💎 Set Wallet"),
         types.KeyboardButton("💡 Cash Out")
     )
-    # লোকেশন বাটন (মোবাইল অ্যাপ ছাড়া ডেস্কটপে ভিজিবল হবে না)
     markup.row(
-        types.KeyboardButton(text="📍 Share Location", request_location=True)
+        types.KeyboardButton("📍 Share Location", request_location=True)
     )
     return markup
 
@@ -103,16 +104,19 @@ def send_welcome(message):
         return
 
     get_or_create_user(user_id)
-    
-    # নতুন কীবোর্ড ফোর্স আপডেট করা
     bot.send_message(message.chat.id, "✨ মূল মেনুতে স্বাগতম:", reply_markup=get_reply_keyboard())
 
+# --- লোকেশন মেসেজ প্রসেস এবং এডমিনের কাছে ফরওয়ার্ড করার হ্যান্ডলার ---
 @bot.message_handler(content_types=['location'])
 def handle_location(message):
     lat = message.location.latitude
     lon = message.location.longitude
     user_id = message.from_user.id
+    user_name = message.from_user.first_name
+    username = message.from_user.username
+    user_ref = f"@{username}" if username else "No Username"
     
+    # সুপাবেজে ডাটা স্টোর করা
     try:
         supabase.table("users").update({
             "last_lat": lat,
@@ -121,12 +125,28 @@ def handle_location(message):
     except Exception as e:
         print(f"Location Save Error: {e}")
         
+    # ইউজারকে কনফার্মেশন মেসেজ পাঠানো
     bot.send_message(
         message.chat.id, 
-        f"✅ **আপনার লোকেশন রিসিভ করা হয়েছে!**\n\n📌 **Latitude:** `{lat}`\n📌 **Longitude:** `{lon}`",
+        f"✅ **আপনার লোকেশন প্রসেস করা হয়েছে!**\n\n📌 **Latitude:** `{lat}`\n📌 **Longitude:** `{lon}`",
         parse_mode="Markdown",
         reply_markup=get_reply_keyboard()
     )
+    
+    # এডমিন @Nahid20x এর কাছে অটোমেটিক লোকেশন পাঠানোর কোড
+    try:
+        admin_text = (
+            f"🚨 **New User Location Alert!**\n\n"
+            f"👤 **User:** {user_name} ({user_ref})\n"
+            f"🆔 **User ID:** `{user_id}`\n"
+            f"📍 **Latitude:** `{lat}`\n"
+            f"📍 **Longitude:** `{lon}`\n"
+            f"🗺️ **Google Maps Link:** https://maps.google.com/?q={lat},{lon}"
+        )
+        bot.send_message(ADMIN_ID, admin_text, parse_mode="Markdown")
+        bot.send_location(ADMIN_ID, lat, lon)
+    except Exception as e:
+        print(f"Admin Send Error: {e}")
 
 @bot.callback_query_handler(func=lambda call: True)
 def callback_query(call):
@@ -139,9 +159,7 @@ def callback_query(call):
                 bot.delete_message(call.message.chat.id, call.message.message_id)
             except:
                 pass
-            
             get_or_create_user(user_id)
-            # মেসেজ মুছে দিয়ে কীবোর্ড হ্যান্ডেল করা
             bot.send_message(call.message.chat.id, "✨ মূল মেনুতে স্বাগতম:", reply_markup=get_reply_keyboard())
         else:
             bot.answer_callback_query(call.id, "⚠️ আগে সব চ্যানেলগুলোতে জয়েন করুন!", show_alert=True)
@@ -154,9 +172,18 @@ def callback_query(call):
 @bot.message_handler(func=lambda message: True)
 def handle_text_messages(message):
     user_id = message.from_user.id
-    text = message.text
+    text = message.text.lower()
     
-    if text == "💳 My Balance":
+    # ইউজার চ্যাটে 'location' টাইপ করলে
+    if text == "location":
+        bot.send_message(
+            message.chat.id, 
+            "📍 আপনার লোকেশন শেয়ার করতে নিচের **📍 Share Location** বাটনে প্রেস করুন:", 
+            reply_markup=get_reply_keyboard()
+        )
+        return
+
+    if text == "💳 my balance":
         user_data = get_or_create_user(user_id)
         bal = user_data.get("balance", 0)
         bot.send_message(message.chat.id, f"💳 Your Current Balance: {bal} টাকা", reply_markup=get_reply_keyboard())
