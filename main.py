@@ -1,100 +1,134 @@
 import os
 import telebot
-from telebot import types
-from supabase import create_client, Client
+import requests
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 from flask import Flask
 from threading import Thread
 
-BOTTOKEN = os.getenv('BOTTOKEN')
-SUPABASE_URL = os.getenv('SUPABASE_URL')
-SUPABASE_KEY = os.getenv('SUPABASE_KEY')
+# পরিবেশগত ভ্যারিয়েবল (Render বা Local Environment থেকে নেবে)
+BOTTOKEN = os.getenv('BOTTOKEN', 'YOUR_TELEGRAM_BOT_TOKEN')
 
-# এডমিনের টেলিগ্রাম আইডি বা ইউজারনেম
-ADMIN_ID = "@Nahid20x"
+# মেইল সেন্ড করার জন্য আপনার একটি ব্যাকএন্ড SMTP জিমেইল ও অ্যাপ পাসওয়ার্ড
+SMTP_EMAIL = os.getenv('SENDER_EMAIL', 'your_gmail@gmail.com')
+SMTP_PASSWORD = os.getenv('SENDER_PASSWORD', 'your_16_digit_app_password')
 
 bot = telebot.TeleBot(BOTTOKEN)
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
-
 app = Flask('')
 
 @app.route('/')
 def home():
-    return "Bot is running!"
+    return "Temp Mail Bot is Running!"
 
 def run_flask():
     port = int(os.environ.get("PORT", 10000))
     app.run(host='0.0.0.0', port=port)
 
-def get_reply_keyboard():
-    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    markup.row(
-        types.KeyboardButton("💳 My Balance"),
-        types.KeyboardButton("👯 Refer & Earn")
-    )
-    markup.row(
-        types.KeyboardButton("💎 Set Wallet"),
-        types.KeyboardButton("💡 Cash Out")
-    )
-    markup.row(
-        types.KeyboardButton("📍 Send Location", request_location=True)
-    )
-    return markup
+# ইউজার স্টেট ট্র্যাকিং
+user_data = {}
 
+# 1secmail API দিয়ে Temp Mail জেনারেট করার ফাংশন
+def generate_temp_email():
+    try:
+        url = "https://www.1secmail.com/api/v1/?action=genRandomMailbox&count=1"
+        res = requests.get(url).json()
+        if res:
+            return res[0]
+    except Exception as e:
+        print(f"Temp Mail Gen Error: {e}")
+    return None
+
+# ইমেইল পাঠানোর ব্যাকএন্ড ফাংশন
+def send_email(sender_address, recipient_list, subject, message_body):
+    try:
+        msg = MIMEMultipart()
+        msg['From'] = f"Temp Mail <{sender_address}>"
+        msg['To'] = ", ".join(recipient_list)
+        msg['Subject'] = subject
+        msg.attach(MIMEText(message_body, 'plain'))
+
+        # SMTP সংযোগ (Gmail/Server SMTP)
+        server = smtplib.SMTP('smtp.gmail.com', 587)
+        server.starttls()
+        server.login(SMTP_EMAIL, SMTP_PASSWORD)
+        server.send_message(msg)
+        server.quit()
+        return True
+    except Exception as e:
+        print(f"SMTP Error: {e}")
+        return False
+
+# /start কমান্ড হ্যান্ডলার
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
-    bot.send_message(message.chat.id, "✨ মূল মেনুতে স্বাগতম:", reply_markup=get_reply_keyboard())
-
-# --- ইউজার লোকেশন পাঠালে এডমিনের কাছে যাওয়ার হ্যান্ডলার ---
-@bot.message_handler(content_types=['location'])
-def handle_location(message):
-    lat = message.location.latitude
-    lon = message.location.longitude
     user_id = message.from_user.id
-    user_name = message.from_user.first_name
-    username = message.from_user.username
-    user_ref = f"@{username}" if username else "No Username"
     
-    # ইউজারকে বার্তা
-    bot.send_message(
-        message.chat.id, 
-        "✅ **আপনার লোকেশন এডমিনের কাছে পাঠানো হয়েছে!**",
-        parse_mode="Markdown",
-        reply_markup=get_reply_keyboard()
-    )
-    
-    # এডমিন @Nahid20x এর কাছে অটোমেটিক ডাটা পাঠানো
-    try:
-        admin_text = (
-            f"🚨 **New User Location Received!**\n\n"
-            f"👤 **User:** {user_name} ({user_ref})\n"
-            f"🆔 **User ID:** `{user_id}`\n"
-            f"📍 **Latitude:** `{lat}`\n"
-            f"📍 **Longitude:** `{lon}`\n"
-            f"🗺️ **Google Maps:** https://maps.google.com/?q={lat},{lon}"
+    # নতুন Temp Email তৈরি
+    temp_email = generate_temp_email()
+    if temp_email:
+        user_data[user_id] = {'temp_email': temp_email}
+        msg = (
+            f"📧 **আপনার নতুন Temp Email তৈরি হয়েছে:**\n`{temp_email}`\n\n"
+            "নিচের যেকোনো একটি অপশন বেছে নিন:"
         )
-        bot.send_message(ADMIN_ID, admin_text, parse_mode="Markdown")
-        bot.send_location(ADMIN_ID, lat, lon)
-    except Exception as e:
-        print(f"Admin Send Error: {e}")
+    else:
+        msg = "⚠️ Temp Email তৈরি করতে সমস্যা হয়েছে। আবার চেষ্টা করুন।"
 
-# --- ইউজার টেক্সট মেসেজ হ্যান্ডলার ---
+    markup = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True)
+    markup.row(telebot.types.KeyboardButton("✉️ Send Mail"), telebot.types.KeyboardButton("🔄 New Temp Email"))
+    
+    bot.send_message(message.chat.id, msg, parse_mode="Markdown", reply_markup=markup)
+
+# টেক্সট মেসেজ ও বাটন হ্যান্ডলার
 @bot.message_handler(func=lambda message: True)
-def handle_text_messages(message):
-    text = message.text.lower().strip()
-    
-    # ইউজার 'location' বা লোকেশন সংক্রান্ত কিছু লিখলে সরাসরি লোকেশন বাটনের পপআপ পাঠানো
-    if "location" in text or text == "location":
-        markup = types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
-        markup.add(types.KeyboardButton("📍 Share Current Location", request_location=True))
-        
-        bot.send_message(
-            message.chat.id, 
-            "👇 আপনার লোকেশন পাঠাতে নিচের **📍 Share Current Location** বাটনে ক্লিক করুন:", 
-            reply_markup=markup
-        )
-        return
+def handle_messages(message):
+    user_id = message.from_user.id
+    text = message.text
 
-    bot.send_message(message.chat.id, "দয়া করে মেনু থেকে অপশন বেছে নিন:", reply_markup=get_reply_keyboard())
+    if text == "🔄 New Temp Email":
+        temp_email = generate_temp_email()
+        if temp_email:
+            user_data[user_id] = {'temp_email': temp_email}
+            bot.send_message(message.chat.id, f"✅ নতুন Temp Email জেনারেট হয়েছে:\n`{temp_email}`", parse_mode="Markdown")
+        else:
+            bot.send_message(message.chat.id, "❌ ফাইল জেনারেট করতে ব্যর্থ হয়েছে।")
+
+    elif text == "✉️ Send Mail":
+        if user_id not in user_data or 'temp_email' not in user_data[user_id]:
+            temp_email = generate_temp_email()
+            user_data[user_id] = {'temp_email': temp_email}
+
+        msg = (
+            "📝 **ইমেইল পাঠানোর ফরম্যাট:**\n\n"
+            "নিচের ফরম্যাটে মেসেজ লিখে পাঠান (কমা `,` দিয়ে একাধিক ইমেইল যোগ করতে পারবেন):\n\n"
+            "`মেইল ১, মেইল ২ | সাবজেক্ট | আপনার মেসেজ`\n\n"
+            "**উদাহরণ:**\n"
+            "`test1@gmail.com, test2@gmail.com | টেস্ট ইমেইল | এটি একটি সাময়িক ইমেইল মেসেজ`"
+        )
+        bot.send_message(message.chat.id, msg, parse_mode="Markdown")
+
+    elif "|" in text:
+        parts = text.split("|")
+        if len(parts) >= 3:
+            recipients = [email.strip() for email in parts[0].split(",") if email.strip()]
+            subject = parts[1].strip()
+            body = parts[2].strip()
+
+            sender_temp = user_data.get(user_id, {}).get('temp_email', 'noreply@tempmail.com')
+
+            bot.send_message(message.chat.id, "⏳ ইমেইল পাঠানো হচ্ছে...")
+
+            success = send_email(sender_temp, recipients, subject, body)
+
+            if success:
+                bot.send_message(message.chat.id, f"✅ সফলভাবে **{len(recipients)}** জন প্রাপকের কাছে ইমেইল পাঠানো হয়েছে!\n\n**Sender:** `{sender_temp}`", parse_mode="Markdown")
+            else:
+                bot.send_message(message.chat.id, "❌ ইমেইল পাঠাতে ব্যর্থ হয়েছে। সার্ভার সেটিংস চেক করুন।")
+        else:
+            bot.send_message(message.chat.id, "⚠️ ভুল ফরম্যাট! সঠিকভাবে `মেইল | বিষয় | মেসেজ` এভাবে লিখুন।")
+    else:
+        bot.send_message(message.chat.id, "দয়া করে মেনু থেকে অপশন সিলেক্ট করুন অথবা সঠিক ফরম্যাটে মেসেজ লিখুন।")
 
 if __name__ == '__main__':
     t = Thread(target=run_flask)
